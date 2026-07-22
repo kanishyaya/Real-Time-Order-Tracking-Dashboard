@@ -1,0 +1,172 @@
+version: "3.9"
+
+# =============================================================================
+#  Service topology
+#
+#  db          — PostgreSQL (single instance, data volume)
+#  redis       — Redis (single instance, in-memory Stream store)
+#  listener    — DB listener: Postgres NOTIFY → Redis Stream   ← ALWAYS 1
+#  backend     — FastAPI API + WebSocket server                ← scales freely
+#  frontend    — Nginx + React (three portals on :4000–4002)
+#
+#  Fix 6 — One writer of NOTIFY, always:
+#
+#  The 'listener' service is the only process that connects to the Postgres
+#  NOTIFY channel and writes to the Redis Stream.  It MUST run as exactly
+#  one instance.  If it ran inside 'backend' and backend were scaled to N
+#  replicas, every NOTIFY would produce N duplicate stream entries and every
+#  client would receive N broadcasts per mutation.
+#
+#  How the singularity is enforced here:
+#    • docker-compose: 'listener' has no 'scale' override and is never
+#      referenced by a load balancer — only one container starts.
+#    • Docker Swarm: add `deploy: { replicas: 1, restart_policy: … }` to
+#      the listener service block and deploy with `docker stack deploy`.
+#    • Kubernetes: use a Deployment with replicas: 1 and set
+#      strategy.type: Recreate (not RollingUpdate) so the old pod is
+#      terminated before the new one starts — otherwise there's a brief
+#      window with two listeners during rollout.
+#
+#  The 'backend' service can be scaled freely with:
+#    docker-compose up --scale backend=3
+#  or by adding replicas in Swarm/K8s.  It reads from the Redis Stream
+#  (XREAD) which is safe for multiple concurrent readers.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB:       orders_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout:  5s
+      retries:  10
+
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test:     ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout:  3s
+      retries:  10
+
+  # ---------------------------------------------------------------------------
+  #  listener — SINGLETON.  Do not scale this service.
+  #
+  #  Responsibilities:
+  #    • Hold one long-lived asyncpg connection to Postgres.
+  #    • LISTEN on 'order_updates'.
+  #    • XADD each NOTIFY payload to the Redis Stream.
+  #
+  #  It has no HTTP port, no REST endpoints, no WebSocket handling.
+  #  Keeping it small means it is easy to monitor and restart without
+  #  disrupting API or WebSocket traffic.
+  # ---------------------------------------------------------------------------
+  listener:
+    build:
+      context:    .
+      dockerfile: listener/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:   postgresql://postgres:password@db:5432/orders_db
+      REDIS_URL:      redis://redis:6379
+      REDIS_STREAM:   order_events_stream
+      STREAM_MAXLEN:  "10000"
+    volumes:
+      - ./sql:/app/sql:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Explicit replica cap — belt-and-suspenders for Swarm/Compose v2.
+    # In production, also add a PodDisruptionBudget or equivalent.
+    deploy:
+      replicas: 1
+
+  # ---------------------------------------------------------------------------
+  #  backend — safe to scale horizontally.
+  #
+  #  Responsibilities:
+  #    • Serve REST endpoints (orders CRUD, auth, health, metrics).
+  #    • Accept WebSocket connections and fan out broadcasts.
+  #    • XREAD from the Redis Stream → ConnectionManager.broadcast().
+  #
+  #  Multiple replicas are fine because XREAD is a safe concurrent read:
+  #  each replica gets every message (fan-out), and the cursor is stored
+  #  per-process in Redis (REDIS_STREAM_CURSOR key).  If you want true
+  #  consumer-group semantics (each message to exactly one replica),
+  #  switch to XREADGROUP — but for WebSocket fan-out you want every
+  #  backend to receive every event so it can push to its own clients.
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context:    .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:         postgresql://postgres:password@db:5432/orders_db
+      REDIS_URL:            redis://redis:6379
+      REDIS_STREAM:         order_events_stream
+      REDIS_STREAM_CURSOR:  order_events_stream:cursor
+      STREAM_MAXLEN:        "10000"
+      STREAM_READ_COUNT:    "100"
+      JWT_SECRET:           orderstream-secret-key-2024
+      JWT_ALGORITHM:        HS256
+      JWT_EXPIRY_MINUTES:   "60"
+      CORS_ORIGINS:         "http://localhost:4000,http://localhost:4001,http://localhost:4002,http://localhost:3000,http://localhost:5173"
+      APP_ENV:              production
+    volumes:
+      - ./sql:/app/sql:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      listener:
+        condition: service_started
+
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context:    frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "4000:80"
+    depends_on:
+      - backend
+
+  frontend2:
+    build:
+      context:    frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "4001:80"
+    depends_on:
+      - backend
+
+  frontend3:
+    build:
+      context:    frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "4002:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

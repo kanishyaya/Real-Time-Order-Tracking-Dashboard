@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --obsidian:    #06080d;
+  --surface-0:   #090c14;
+  --surface-1:   #0d1120;
+  --surface-2:   #111829;
+  --surface-3:   #161e30;
+  --surface-4:   #1c2538;
+
+  --border-0: rgba(255,255,255,0.042);
+  --border-1: rgba(255,255,255,0.078);
+  --border-2: rgba(255,255,255,0.13);
+  --border-3: rgba(255,255,255,0.22);
+
+  --cyan:      #00d4ff;
+  --cyan-dim:  rgba(0,212,255,0.1);
+  --cyan-mid:  rgba(0,212,255,0.18);
+  --cyan-glow: rgba(0,212,255,0.32);
+
+  --t0: #ffffff;
+  --t1: #e8edf7;
+  --t2: #8d9ab5;
+  --t3: #4d5a72;
+  --t4: #2a3347;
+
+  --green:  #00e5a0;
+  --amber:  #ffb547;
+  --red:    #ff5b5b;
+  --violet: #a78bfa;
+
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'Inter', system-ui, sans-serif;
+
+  --r1: 6px;
+  --r2: 10px;
+  --r3: 16px;
+  --r4: 22px;
+
+  --ease: cubic-bezier(0.4,0,0.2,1);
+  --spring: cubic-bezier(0.22,1,0.36,1);
+}
+
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0 }
+html { font-size:16px; -webkit-font-smoothing:antialiased }
+body { font-family:var(--sans); background:var(--obsidian); color:var(--t1); min-height:100vh; overflow-x:hidden }
+button { font-family:var(--sans); cursor:pointer; border:none; background:none }
+input,select,textarea { font-family:var(--sans) }
+
+::-webkit-scrollbar { width:3px }
+::-webkit-scrollbar-track { background:transparent }
+::-webkit-scrollbar-thumb { background:var(--border-1); border-radius:3px }
+::-webkit-scrollbar-thumb:hover { background:var(--border-2) }
+
+@keyframes fadeUp    { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeIn    { from{opacity:0} to{opacity:1} }
+@keyframes slideIn   { from{opacity:0;transform:translateX(12px)} to{opacity:1;transform:translateX(0)} }
+@keyframes cardIn    { from{opacity:0;transform:translateY(8px) scale(0.985)} to{opacity:1;transform:translateY(0) scale(1)} }
+@keyframes spin      { to{transform:rotate(360deg)} }
+@keyframes ping      { 0%{transform:scale(0.8);opacity:0.9} 100%{transform:scale(2.4);opacity:0} }
+@keyframes pulse     { 0%,100%{opacity:1} 50%{opacity:0.35} }
+@keyframes scanline  { 0%{transform:translateY(-100%)} 100%{transform:translateY(400%)} }
+@keyframes barFill   { from{transform:scaleX(0)} to{transform:scaleX(1)} }
+@keyframes numberIn  { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }

@@ -1,0 +1,11 @@
+# Standalone DB-listener service dependencies
+# Intentionally minimal — no FastAPI, no Pydantic, no JWT, no HTTP server.
+
+# PostgreSQL async driver
+asyncpg==0.29.0
+
+# Redis async client — for Stream writes
+redis==5.0.4
+
+# Environment variable management
+python-dotenv==1.0.1
