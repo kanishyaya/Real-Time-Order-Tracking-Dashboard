@@ -6,9 +6,9 @@ FastAPI application entry point.
 Real-time sync architecture:
   PostgreSQL trigger
       → NOTIFY on 'order_updates' channel
-      → DB Listener (asyncpg) picks it up
-      → Publishes JSON to Redis Pub/Sub
-      → Redis Broadcaster subscribes and calls manager.broadcast()
+      → 'listener' service (separate process, listener/main.py) picks it up
+      → XADDs the event to a Redis Stream (order_events_stream)
+      → This backend's Redis Broadcaster (redis_broadcaster.py) XREADs it
       → ConnectionManager fans out to EVERY WebSocket client
          (across all portals: :4000, :4001, :4002, …)
 

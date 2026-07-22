@@ -26,10 +26,20 @@ security = HTTPBearer(auto_error=False)
 
 
 def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Accept token from Authorization header OR ?token= query param."""
-    if credentials:
-        return verify_token(credentials.credentials)
-    return None   # open read for demo; tighten in production
+    """
+    Require a valid Bearer token on every route that depends on this.
+
+    Previously this returned None when no credentials were supplied instead
+    of raising, which meant write endpoints (POST/PUT/DELETE) were callable
+    with zero authentication despite the API docs stating a token is
+    required. Fixed to actually enforce that contract.
+    """
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+        )
+    return verify_token(credentials.credentials)
 
 
 @router.get("", response_model=list[OrderResponse])

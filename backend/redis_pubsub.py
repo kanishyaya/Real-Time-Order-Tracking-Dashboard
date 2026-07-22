@@ -1,7 +1,8 @@
 """
 redis_pubsub.py
 ---------------
-Publisher side of the Redis Streams pipeline.
+Redis client factory used by the backend (for the broadcaster's XREAD
+side) and by routes that need direct Redis access.
 
 ## Delivery-guarantee model — read this before changing anything
 
@@ -25,8 +26,9 @@ add code that assumes stronger guarantees.
 
 ### What we do instead
 
-  1. Postgres NOTIFY → Redis Stream  (db_listener → this module)
-  2. Redis Stream → WebSocket fan-out  (broadcaster → clients)
+  1. Postgres NOTIFY → Redis Stream  (listener service → XADD, see
+     listener/main.py — this is a separate process, not this module)
+  2. Redis Stream → WebSocket fan-out  (redis_broadcaster.py → XREAD → clients)
   3. On reconnect: client calls GET /orders?since_version=N to catch up
      on anything missed while it was disconnected (Fix 3 in this project).
 
@@ -61,9 +63,12 @@ that event is lost at the Redis layer too.  Redis Streams solve this:
   mutation, then have a separate poller (or Debezium) move rows from
   the outbox into the Redis Stream.  This closes the NOTIFY gap at the
   cost of an extra table and a polling loop (or CDC tooling).
+
+NOTE: the actual XADD publisher lives in listener/main.py, not here —
+that file was previously duplicated in this module and has been removed
+to avoid two implementations of the same responsibility drifting apart.
 """
 
-import json
 import logging
 
 import redis.asyncio as aioredis
@@ -82,29 +87,3 @@ async def create_redis_client() -> aioredis.Redis:
         decode_responses=True,
     )
     return client
-
-
-# ── Publisher (XADD → Stream) ────────────────────────────────────────────────
-
-async def publish_event(client: aioredis.Redis, event: dict) -> None:
-    """
-    Write an event to the Redis Stream.
-
-    Uses XADD with MAXLEN ~ STREAM_MAXLEN to keep memory bounded while
-    retaining enough history for a broadcaster restart to catch up.
-    The auto-generated stream ID (millisecond timestamp + sequence) is
-    what the broadcaster uses to resume after a restart.
-
-    Called by the DB listener each time PostgreSQL fires a NOTIFY.
-    """
-    payload = json.dumps(event)
-    msg_id = await client.xadd(
-        settings.REDIS_STREAM,
-        {"data": payload},
-        maxlen=settings.STREAM_MAXLEN,
-        approximate=True,   # ~ trim: O(1) instead of O(N)
-    )
-    logger.debug(
-        "redis_pubsub: XADD %s id=%s op=%s",
-        settings.REDIS_STREAM, msg_id, event.get("operation"),
-    )

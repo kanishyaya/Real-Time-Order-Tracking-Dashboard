@@ -117,6 +117,10 @@ Browser :4000    Browser :4001    Browser :4002
 
 ## Why I Chose This Architecture
 
+### A note on scope
+
+This solves more than the problem statement strictly requires. A single-table, no-stated-scale assignment could be solved with `LISTEN`/`NOTIFY` wired directly to a WebSocket handler in one process — no Redis, no singleton listener service, no three-replica frontend. I built the fuller version deliberately, to demonstrate the next question a real system would raise ("what happens when you need more than one backend instance?") rather than stop at the minimum that satisfies the prompt. That's a judgment call, not a free pass — added complexity should earn its place, and the [Troubleshooting](#troubleshooting) section exists precisely because more moving parts means more ways for a first run to go wrong.
+
 ### Event-driven over polling
 
 I used an **event-driven architecture** instead of polling to achieve low-latency real-time updates efficiently.
@@ -356,9 +360,8 @@ os4-fixed/
 │   └── Dockerfile
 ├── backend/
 │   ├── main.py                 # FastAPI app, lifespan, /ws endpoint
-│   ├── db_listener.py          # Legacy/alt DB listener helper
 │   ├── redis_broadcaster.py    # Background task: Redis Stream (XREAD) → WebSockets
-│   ├── redis_pubsub.py         # Redis publish/subscribe helpers
+│   ├── redis_pubsub.py         # Redis client factory (used by main.py + broadcaster)
 │   ├── websocket_manager.py    # ConnectionManager (registry + broadcast)
 │   ├── routes_orders.py        # REST CRUD + since_version catch-up endpoint
 │   ├── database.py             # asyncpg pool + schema init + query helpers
@@ -366,6 +369,8 @@ os4-fixed/
 │   ├── config.py                # All env vars (Settings)
 │   ├── models.py                # Pydantic models
 │   ├── requirements.txt
+│   ├── requirements-dev.txt     # pytest, for running tests/
+│   ├── tests/                   # Unit tests (auth, models, auth enforcement)
 │   ├── .env.example             # Template for running backend outside Docker
 │   └── Dockerfile
 └── frontend/
@@ -399,6 +404,22 @@ os4-fixed/
 | `APP_ENV`              | `production` (via compose) / `development` (default in code) | `development` or `production`         |
 
 All of the above are already set for you inside `docker-compose.yml` for the containerized run — you only need `backend/.env.example` → `.env` if running the backend outside Docker (e.g. via VS Code's Python debugger).
+
+---
+
+## Testing
+
+The backend has a unit test suite covering auth (JWT creation/verification, demo-user login), the Pydantic request models, and the auth-enforcement dependency used on every REST endpoint. These run without a live Postgres or Redis connection.
+
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt
+pytest tests/ -v
+```
+
+Notably, this test suite caught a real bug during development: `require_auth()` previously returned `None` instead of rejecting the request when no token was supplied at all, meaning every write endpoint (`POST`/`PUT`/`DELETE` on `/orders`) was callable with zero authentication — despite the API reference above stating a Bearer token is required. `tests/test_require_auth.py` locks this in as a regression test so it can't silently reappear.
+
+There is no integration test against a live database/Redis/WebSocket stack yet — that's the next thing worth adding (e.g. via `docker compose -f docker-compose.test.yml` spinning up real services and running a pytest suite with `httpx.AsyncClient` + a WebSocket test client against them).
 
 ---
 

@@ -66,7 +66,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
     stream=sys.stdout,
 )
-logger = logging.getLogger("db_listener")
+logger = logging.getLogger("listener")
 
 
 # ---------------------------------------------------------------------------

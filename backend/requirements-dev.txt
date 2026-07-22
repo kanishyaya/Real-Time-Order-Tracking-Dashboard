@@ -1,0 +1,7 @@
+# ============================================================
+#  Development / test-only dependencies
+#  Install with: pip install -r requirements.txt -r requirements-dev.txt
+#  Not installed in the production Docker image.
+# ============================================================
+
+pytest==8.2.0
